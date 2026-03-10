@@ -1,0 +1,22 @@
+{
+  "name": "stock-trading-websocket",
+  "version": "1.0.0",
+  "description": "WebSocket stock trading game server",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "eslint": "^10.0.3",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-prettier": "^5.5.5",
+    "prettier": "^3.8.1"
+  }
+}
