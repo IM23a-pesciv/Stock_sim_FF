@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Trading Game</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+        .hidden { display: none !important; }
+        .panel { border: 1px solid #ccc; border-radius: 8px; padding: 1.25rem; margin-top: 1rem; }
+        label { display: block; margin-top: 0.75rem; font-weight: 600; }
+        input { width: 100%; max-width: 20rem; padding: 0.5rem; margin-top: 0.25rem; box-sizing: border-box; }
+        button { margin-top: 1rem; margin-right: 0.5rem; padding: 0.5rem 1rem; cursor: pointer; }
+        .code { font-size: 1.5rem; letter-spacing: 0.2em; font-weight: 700; }
+        .err { color: #b00020; margin-top: 0.5rem; }
+        pre { background: #f5f5f5; padding: 1rem; overflow: auto; }
+    </style>
+</head>
+<body>
+
+    <section id="view-login">
+        <h1>Log in</h1>
+        <p>Choose a username. It is saved on the server in <code>backend/data/users.json</code>.</p>
+        <label for="login-username">Username</label>
+        <input id="login-username" type="text" autocomplete="username" placeholder="Your name">
+        <div id="login-error" class="err hidden"></div>
+        <button type="button" id="btn-login">Continue</button>
+    </section>
+
+    <section id="view-lobby" class="hidden">
+        <h1 id="lobby-greeting">Hello</h1>
+        <p>You can host a session (get a code) or join with a code from the host.</p>
+        <button type="button" id="btn-host">Host</button>
+        <button type="button" id="btn-join">Join</button>
+
+        <div id="host-panel" class="panel hidden">
+            <h2>Your session code</h2>
+            <p>Share this code so others can join.</p>
+            <p class="code" id="host-code">—</p>
+            <p id="host-status">Waiting for players…</p>
+        </div>
+
+        <div id="join-panel" class="panel hidden">
+            <h2>Enter session code</h2>
+            <label for="join-code">Code</label>
+            <input id="join-code" type="text" maxlength="8" autocomplete="off" placeholder="e.g. ABC123">
+            <div id="join-error" class="err hidden"></div>
+            <button type="button" id="btn-join-submit">Connect</button>
+            <button type="button" id="btn-join-cancel">Cancel</button>
+        </div>
+    </section>
+
+    <section id="view-game" class="hidden">
+        <h2>Trading session</h2>
+        <p>Session: <strong id="game-session"></strong> · Socket: <span id="game-socket-status">—</span></p>
+
+        <h3>Stocks</h3>
+        <button type="button" id="btn-prices">Get prices</button>
+        <pre id="prices"></pre>
+    </section>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+        const STORAGE_KEY = 'stock_sim_username';
+
+        const viewLogin = document.getElementById('view-login');
+        const viewLobby = document.getElementById('view-lobby');
+        const viewGame = document.getElementById('view-game');
+
+        const loginUsername = document.getElementById('login-username');
+        const loginError = document.getElementById('login-error');
+        const lobbyGreeting = document.getElementById('lobby-greeting');
+        const hostPanel = document.getElementById('host-panel');
+        const joinPanel = document.getElementById('join-panel');
+        const hostCodeEl = document.getElementById('host-code');
+        const joinCodeInput = document.getElementById('join-code');
+        const joinError = document.getElementById('join-error');
+        const gameSessionEl = document.getElementById('game-session');
+        const gameSocketStatus = document.getElementById('game-socket-status');
+
+        let username = sessionStorage.getItem(STORAGE_KEY) || '';
+        let socket = null;
+        let activeSessionId = null;
+
+        function showLoginError(msg) {
+            loginError.textContent = msg;
+            loginError.classList.remove('hidden');
+        }
+
+        function hideLoginError() {
+            loginError.classList.add('hidden');
+        }
+
+        function showJoinError(msg) {
+            joinError.textContent = msg;
+            joinError.classList.remove('hidden');
+        }
+
+        function hideJoinError() {
+            joinError.classList.add('hidden');
+        }
+
+        function goLobby() {
+            viewLogin.classList.add('hidden');
+            viewLobby.classList.remove('hidden');
+            viewGame.classList.add('hidden');
+            lobbyGreeting.textContent = `Hello, ${username}`;
+            ensureSocket();
+        }
+
+        function goGame(sessionId) {
+            activeSessionId = sessionId;
+            viewLobby.classList.add('hidden');
+            viewGame.classList.remove('hidden');
+            hostPanel.classList.add('hidden');
+            joinPanel.classList.add('hidden');
+            gameSessionEl.textContent = sessionId;
+        }
+
+        function ensureSocket() {
+            if (socket) return socket;
+
+            socket = io();
+
+            socket.on('connect', () => {
+                gameSocketStatus.textContent = 'connected (' + socket.id + ')';
+            });
+
+            socket.on('disconnect', () => {
+                gameSocketStatus.textContent = 'disconnected';
+            });
+
+            socket.on('sessionHosted', (data) => {
+                const code = data.code;
+                hostCodeEl.textContent = code;
+                hostPanel.classList.remove('hidden');
+                goGame(code);
+            });
+
+            socket.on('hostError', (data) => {
+                alert(data.message || 'Could not host session');
+            });
+
+            socket.on('joinSuccess', (data) => {
+                hideJoinError();
+                joinPanel.classList.add('hidden');
+                goGame(data.sessionId);
+            });
+
+            socket.on('joinError', (data) => {
+                showJoinError(data.message || 'Could not join');
+            });
+
+            socket.on('hostDisconnected', () => {
+                alert('Host left the session.');
+                activeSessionId = null;
+                viewGame.classList.add('hidden');
+                viewLobby.classList.remove('hidden');
+            });
+
+            socket.on('userJoined', (data) => {
+                const el = document.getElementById('host-status');
+                if (el) {
+                    el.textContent = data.username + ' joined · ' + (data.totalUsers || '') + ' in session';
+                }
+            });
+
+            socket.on('priceUpdate', (prices) => {
+                document.getElementById('prices').textContent = JSON.stringify(prices, null, 2);
+            });
+
+            socket.on('tradeExecuted', (data) => {
+                alert(`${data.username} ${data.action} ${data.quantity} ${data.symbol}`);
+            });
+
+            socket.on('orderError', (err) => {
+                alert(err.message);
+            });
+
+            return socket;
+        }
+
+        document.getElementById('btn-login').addEventListener('click', async () => {
+            hideLoginError();
+            const name = loginUsername.value.trim();
+            if (!name) {
+                showLoginError('Enter a username.');
+                return;
+            }
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: name })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    showLoginError(data.error || 'Login failed');
+                    return;
+                }
+                username = data.username || name;
+                sessionStorage.setItem(STORAGE_KEY, username);
+                goLobby();
+            } catch {
+                showLoginError('Network error — is the server running?');
+            }
+        });
+
+        document.getElementById('btn-host').addEventListener('click', () => {
+            hideJoinError();
+            joinPanel.classList.add('hidden');
+            ensureSocket();
+            socket.emit('hostSession', { username });
+        });
+
+        document.getElementById('btn-join').addEventListener('click', () => {
+            hideJoinError();
+            hostPanel.classList.add('hidden');
+            joinPanel.classList.remove('hidden');
+            joinCodeInput.value = '';
+            joinCodeInput.focus();
+        });
+
+        document.getElementById('btn-join-cancel').addEventListener('click', () => {
+            joinPanel.classList.add('hidden');
+            hideJoinError();
+        });
+
+        document.getElementById('btn-join-submit').addEventListener('click', () => {
+            hideJoinError();
+            const code = joinCodeInput.value.trim();
+            if (!code) {
+                showJoinError('Enter the code from the host.');
+                return;
+            }
+            ensureSocket();
+            socket.emit('joinWithCode', { username, code });
+        });
+
+        document.getElementById('btn-prices').addEventListener('click', () => {
+            if (socket) socket.emit('requestPrices');
+        });
+
+        async function restoreSession() {
+            const u = sessionStorage.getItem(STORAGE_KEY);
+            if (!u) return;
+            try {
+                await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: u })
+                });
+            } catch {
+                /* still show lobby */
+            }
+            username = u;
+            loginUsername.value = u;
+            goLobby();
+        }
+
+        restoreSession();
+    </script>
+</body>
+</html>
